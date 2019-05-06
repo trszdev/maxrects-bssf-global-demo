@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>MaxRectsPacker</title>
+    <style>
+      body { margin: 10px }
+
+      #bin {
+        position: relative;
+        background: #000;
+      }
+
+      input[type=submit]:not(:disabled) {
+        cursor: pointer;
+      }
+
+      .rect, .hole {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        color: #000;
+        background: #fff;
+        opacity: .9;
+        font-family: Arial, Helvetica, sans-serif;
+        font-weight: bold;
+        border: 1px solid #ccc;
+        box-sizing: border-box;
+        margin-right: 10px;
+        margin-top: 10px;
+      }
+
+      .hole {
+        background: transparent;
+        border-width: 2px;
+      }
+
+      .rect.rot span { transform: rotate(90deg) }
+
+      .abs, .hole {
+        position: absolute;
+        margin: 0;
+      }
+
+      #free {
+        display: flex;
+        flex-flow: row wrap;
+      }
+    </style>
+  </head>
+  <body>
+      <h1>MaxRectsBinPacker</h1>
+      <p>
+        Single 2d bin packing algorithm based on maximal rectangles method
+        with best short side fit heuristic and global best choice optimization
+      </p>
+      <p>
+        <a href="RectangleBinPack.pdf">A Thousand Ways to Pack the Bin - A Practical Approach to Two-Dimensional Rectangle Bin Packing</a>
+      </p>
+      <table>
+        <thead><th></th><th>Width</th><th>Height</th></thead>
+        <tr>
+          <td>Bin size</td>
+          <td>
+            <input min="1" value="512" type="number" id="bin-width">
+          </td>
+          <td>
+            <input min="1" value="512" type="number" id="bin-height">
+          </td>
+          <td>
+            <input value="Apply" type="submit" id="set-bin">
+          </td>
+        </tr>
+        <tr>
+          <td>Add rectangle</td>
+          <td>
+            <input value="100" type="number" id="rect-width">
+          </td>
+          <td>
+            <input value="100" type="number" id="rect-height">
+          </td>
+          <td>
+            <input value="Add" type="submit" id="add-rect">
+            <input value="Add random" type="submit" id="add-random-rect">
+            <input value="Add random x5" type="submit" id="add-random-rect-5">
+          </td>
+        </tr>
+      </table>
+      <p>
+        <input value="Test set #1" type="submit" id="test-set">
+        <input value="Test set #2" type="submit" id="test-set-2">
+        <input value="Test set #3" type="submit" id="test-set-3">
+        <input value="Pack rectangles" disabled type="submit" id="pack-rects">
+      </p>
+      <div id="bin"></div>
+      <div id="free"></div>
+      <script>
+        var rects = []
+        var dom = {
+          setBin: document.getElementById('set-bin'),
+          addRect: document.getElementById('add-rect'),
+          addRandomRect: document.getElementById('add-random-rect'),
+          addRandomRect5: document.getElementById('add-random-rect-5'),
+          rectWidth: document.getElementById('rect-width'),
+          rectHeight: document.getElementById('rect-height'),
+          binWidth: document.getElementById('bin-width'),
+          binHeight: document.getElementById('bin-height'),
+          bin: document.getElementById('bin'),
+          free: document.getElementById('free'),
+          packRects: document.getElementById('pack-rects'),
+          testSet: document.getElementById('test-set'),
+          testSet2: document.getElementById('test-set-2'),
+          testSet3: document.getElementById('test-set-3'),
+        }
+
+        function clearBin() {
+          clearChildren(dom.bin)
+        }
+
+        function clearChildren(node) {
+          while (node.firstChild) node.removeChild(node.firstChild)
+        }
+
+        function splitHole(hole, rect) {
+          var result = []
+          var hx = hole[0], hy = hole[1], hw = hole[2], hh = hole[3];
+          var rx = rect[0], ry = rect[1], rw = rect[2], rh = rect[3];
+          if (rx >= hx + hw || rx + rw <= hx || ry >= hy + hh || ry + rh <= hy) return 0
+          if (rx < hx + hw && rx + rw > hx) {
+            if (ry > hy && ry < hy + hh) result.push([hx, hy, hw, ry - hy])
+            if (ry + rh < hy + hh) result.push([hx, ry + rh, hw, hy + hh - ry - rh])
+          }
+          if (ry < hy + hh && ry + rh > hy) {
+            if (rx > hx && rx < hx + hw) result.push([hx, hy, rx - hx, hh])
+            if (rx + rw < hx + hw) result.push([rx + rw, hy, hx + hw - rx - rw, hh])
+          }
+          return result
+        }
+
+        function removeRedunduntHoles(holes) {
+          var result = {}
+          for (var i = 0; i < holes.length; i++) result[i] = holes[i]
+          for (var i = 0; i < holes.length; i++) {
+            for (var j = i + 1; j < holes.length; j++) {
+              var ax = holes[i][0], ay = holes[i][1], aw = holes[i][2], ah = holes[i][3];
+              var bx = holes[j][0], by = holes[j][1], bw = holes[j][2], bh = holes[j][3];
+              if (ax >= bx && ay >= by && ax + aw <= bx + bw && ay + ah <= by + bh)
+                delete result[i]
+              else if (bx >= ax && by >= ay && bx + bw <= ax + aw && by + bh <= ay + ah)
+                delete result[j]
+            }
+          }
+          return Object.values(result)
+        }
+
+        function getScoredRect(holes, width, height) {
+          var score = Number.MAX_VALUE
+          var rect = null
+          for (var i = 0; i < holes.length; i++) {
+            var hx = holes[i][0], hy = holes[i][1], hw = holes[i][2], hh = holes[i][3];
+            var newScore = Math.min(hw - width, hh - height)
+            var newScoreFlipped = Math.min(hw - height, hh - width)
+            if (hw >= width && hh >= height && newScore < score) {
+              rect = [hx, hy, width, height]
+              score = newScore
+            }
+            if (hw >= height && hh >= width && newScoreFlipped < score) {
+              rect = [hx, hy, height, width, true]
+              score = newScoreFlipped
+            }
+          }
+          return rect ? [score, rect] : null
+        }
+
+        function createDomRect(number, w, h, isHole) {
+          var rect = document.createElement('div')
+          var span = document.createElement('span')
+          span.append(document.createTextNode(number))
+          rect.appendChild(span)
+          rect.className = isHole ? 'hole' : 'rect'
+          rect.style.width = w + 'px'
+          rect.style.height = h + 'px'
+          return rect
+        }
+
+        function addRect(w, h) {
+          rects.push([w, h])
+          dom.packRects.disabled = false
+          dom.free.appendChild(createDomRect(rects.length, w, h, false))
+        }
+
+        function packRectangles() {
+          clearChildren(dom.bin)
+          dom.packRects.disabled = true
+          var holes = [[0, 0, parseInt(dom.bin.style.width), parseInt(dom.bin.style.height)]]
+          while (rects.length) {
+            var minScore = Number.MAX_VALUE
+            var bestIndex = -1
+            var bestRect = null
+            for (var i = 0; i < rects.length; i++) {
+              var rectAndScore = getScoredRect(holes, rects[i][0], rects[i][1])
+              if (rectAndScore && minScore > rectAndScore[0]) {
+                bestIndex = i
+                minScore = rectAndScore[0]
+                bestRect = rectAndScore[1]
+              }
+            }
+            if (!bestRect) break
+            rects.splice(bestIndex, 1)
+            var domNode = dom.free.children.item(bestIndex)
+            dom.free.removeChild(domNode)
+            domNode.className = bestRect[4] ? 'rect abs rot' : 'rect abs'
+            domNode.style.top = bestRect[1] + 'px'
+            domNode.style.left = bestRect[0] + 'px'
+            domNode.style.width = bestRect[2] + 'px'
+            domNode.style.height = bestRect[3] + 'px'
+            dom.bin.append(domNode)
+            var newHoles = []
+            var newSplitted = []
+            for (var i = 0; i < holes.length; i++) {
+              var splitted = splitHole(holes[i], bestRect)
+              if (splitted) newSplitted.push.apply(newSplitted, splitted)
+              else newHoles.push(holes[i])
+            }
+            holes = removeRedunduntHoles(newHoles.concat(newSplitted))
+          }
+          for (var i = 0; i < holes.length; i++) {
+            var hole = createDomRect(i + 1, holes[i][2], holes[i][3], true)
+            var color = '#' + (0x111 + Math.floor(Math.random() * 0xEEE)).toString(16)
+            hole.style.left = holes[i][0] + 'px'
+            hole.style.top = holes[i][1] + 'px'
+            hole.style.borderColor = color
+            hole.style.color = color
+            dom.bin.appendChild(hole)
+          }
+        }
+
+        function addTestSet(set) {
+          return function() {
+            for (var i = 0; i < set.length; i++) addRect(set[i][0], set[i][1])
+          }
+        }
+
+        dom.testSet.onclick = addTestSet([
+          [100, 100], [100, 100], [100, 100], [100, 100],
+        ])
+        dom.testSet2.onclick = addTestSet([
+          [30, 30], [30, 30], [30, 30], [30, 30],
+        ])
+        dom.testSet3.onclick = addTestSet([
+          [30, 50], [60, 90],
+        ])
+        dom.packRects.onclick = packRectangles
+        dom.setBin.onclick = function() {
+          dom.bin.style.width = dom.binWidth.value + 'px'
+          dom.bin.style.height = dom.binHeight.value + 'px'
+          clearBin()
+        }
+        dom.addRect.onclick = function() {
+          addRect(+dom.rectWidth.value, +dom.rectHeight.value)
+        }
+        dom.addRandomRect.onclick = function() {
+          var bin = document.getElementById('bin')
+          var binWidth = parseInt(bin.style.width) - 1
+          var binHeight = parseInt(bin.style.height) - 1
+          var width = 10 + Math.ceil(Math.random() * binWidth * 0.25)
+          var height = 10 + Math.ceil(Math.random() * binHeight * 0.25)
+          dom.rectWidth.value = width
+          dom.rectHeight.value = height
+          dom.addRect.click()
+        }
+        dom.addRandomRect5.onclick = function() {
+          for (var i = 0; i < 5; i++) dom.addRandomRect.click()
+        }
+        dom.setBin.click()
+      </script>
+  </body>
+</html>
