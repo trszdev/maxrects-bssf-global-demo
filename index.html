@@ -177,7 +177,7 @@
         function createDomRect(number, w, h, isHole) {
           var rect = document.createElement('div')
           var span = document.createElement('span')
-          span.append(document.createTextNode(number))
+          span.appendChild(document.createTextNode(number))
           rect.appendChild(span)
           rect.className = isHole ? 'hole' : 'rect'
           rect.style.width = w + 'px'
@@ -216,7 +216,7 @@
             domNode.style.left = bestRect[0] + 'px'
             domNode.style.width = bestRect[2] + 'px'
             domNode.style.height = bestRect[3] + 'px'
-            dom.bin.append(domNode)
+            dom.bin.appendChild(domNode)
             var newHoles = []
             var newSplitted = []
             for (var i = 0; i < holes.length; i++) {
