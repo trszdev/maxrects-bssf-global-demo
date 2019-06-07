@@ -97,6 +97,16 @@
       <div id="bin"></div>
       <div id="free"></div>
       <script>
+        Object.values = function(obj) {
+          var res = []
+          for (var i in obj) {
+              if (obj.hasOwnProperty(i)) {
+                  res.push(obj[i])
+              }
+          }
+          return res
+        }
+        
         var rects = []
         var dom = {
           setBin: document.getElementById('set-bin'),
