@@ -96,17 +96,8 @@
       </p>
       <div id="bin"></div>
       <div id="free"></div>
+      <script src="maxrects.js"></script>
       <script>
-        Object.values = function(obj) {
-          var res = []
-          for (var i in obj) {
-              if (obj.hasOwnProperty(i)) {
-                  res.push(obj[i])
-              }
-          }
-          return res
-        }
-        
         var rects = []
         var dom = {
           setBin: document.getElementById('set-bin'),
@@ -133,57 +124,6 @@
           while (node.firstChild) node.removeChild(node.firstChild)
         }
 
-        function splitHole(hole, rect) {
-          var result = []
-          var hx = hole[0], hy = hole[1], hw = hole[2], hh = hole[3];
-          var rx = rect[0], ry = rect[1], rw = rect[2], rh = rect[3];
-          if (rx >= hx + hw || rx + rw <= hx || ry >= hy + hh || ry + rh <= hy) return 0
-          if (rx < hx + hw && rx + rw > hx) {
-            if (ry > hy && ry < hy + hh) result.push([hx, hy, hw, ry - hy])
-            if (ry + rh < hy + hh) result.push([hx, ry + rh, hw, hy + hh - ry - rh])
-          }
-          if (ry < hy + hh && ry + rh > hy) {
-            if (rx > hx && rx < hx + hw) result.push([hx, hy, rx - hx, hh])
-            if (rx + rw < hx + hw) result.push([rx + rw, hy, hx + hw - rx - rw, hh])
-          }
-          return result
-        }
-
-        function removeRedunduntHoles(holes) {
-          var result = {}
-          for (var i = 0; i < holes.length; i++) result[i] = holes[i]
-          for (var i = 0; i < holes.length; i++) {
-            for (var j = i + 1; j < holes.length; j++) {
-              var ax = holes[i][0], ay = holes[i][1], aw = holes[i][2], ah = holes[i][3];
-              var bx = holes[j][0], by = holes[j][1], bw = holes[j][2], bh = holes[j][3];
-              if (ax >= bx && ay >= by && ax + aw <= bx + bw && ay + ah <= by + bh)
-                delete result[i]
-              else if (bx >= ax && by >= ay && bx + bw <= ax + aw && by + bh <= ay + ah)
-                delete result[j]
-            }
-          }
-          return Object.values(result)
-        }
-
-        function getScoredRect(holes, width, height) {
-          var score = Number.MAX_VALUE
-          var rect = null
-          for (var i = 0; i < holes.length; i++) {
-            var hx = holes[i][0], hy = holes[i][1], hw = holes[i][2], hh = holes[i][3];
-            var newScore = Math.min(hw - width, hh - height)
-            var newScoreFlipped = Math.min(hw - height, hh - width)
-            if (hw >= width && hh >= height && newScore < score) {
-              rect = [hx, hy, width, height]
-              score = newScore
-            }
-            if (hw >= height && hh >= width && newScoreFlipped < score) {
-              rect = [hx, hy, height, width, true]
-              score = newScoreFlipped
-            }
-          }
-          return rect ? [score, rect] : null
-        }
-
         function createDomRect(number, w, h, isHole) {
           var rect = document.createElement('div')
           var span = document.createElement('span')
@@ -204,43 +144,28 @@
         function packRectangles() {
           clearChildren(dom.bin)
           dom.packRects.disabled = true
-          var holes = [[0, 0, parseInt(dom.bin.style.width), parseInt(dom.bin.style.height)]]
-          while (rects.length) {
-            var minScore = Number.MAX_VALUE
-            var bestIndex = -1
-            var bestRect = null
-            for (var i = 0; i < rects.length; i++) {
-              var rectAndScore = getScoredRect(holes, rects[i][0], rects[i][1])
-              if (rectAndScore && minScore > rectAndScore[0]) {
-                bestIndex = i
-                minScore = rectAndScore[0]
-                bestRect = rectAndScore[1]
-              }
-            }
-            if (!bestRect) break
-            rects.splice(bestIndex, 1)
-            var domNode = dom.free.children.item(bestIndex)
+          var m = maxrects(rects, parseInt(dom.bin.style.width), parseInt(dom.bin.style.height))
+          var domRects = Array(dom.free.children.length)
+          for (var i = 0; i < dom.free.children.length; i++) domRects[i] = dom.free.children.item(i)
+          for (var i in m.packed) {
+            var domNode = domRects[i]
+            var rect = m.packed[i]
             dom.free.removeChild(domNode)
-            domNode.className = bestRect[4] ? 'rect abs rot' : 'rect abs'
-            domNode.style.top = bestRect[1] + 'px'
-            domNode.style.left = bestRect[0] + 'px'
-            domNode.style.width = bestRect[2] + 'px'
-            domNode.style.height = bestRect[3] + 'px'
+            domNode.className = rect[4] ? 'rect abs rot' : 'rect abs'
+            domNode.style.top = rect[1] + 'px'
+            domNode.style.left = rect[0] + 'px'
+            domNode.style.width = rect[2] + 'px'
+            domNode.style.height = rect[3] + 'px'
             dom.bin.appendChild(domNode)
-            var newHoles = []
-            var newSplitted = []
-            for (var i = 0; i < holes.length; i++) {
-              var splitted = splitHole(holes[i], bestRect)
-              if (splitted) newSplitted.push.apply(newSplitted, splitted)
-              else newHoles.push(holes[i])
-            }
-            holes = removeRedunduntHoles(newHoles.concat(newSplitted))
           }
-          for (var i = 0; i < holes.length; i++) {
-            var hole = createDomRect(i + 1, holes[i][2], holes[i][3], true)
+          rects = []
+          for (var i in m.unused) rects.push(m.unused[i])
+          if (rects.length) dom.packRects.disabled = false
+          for (var i in m.free) {
+            var hole = createDomRect(+i + 1, m.free[i][2], m.free[i][3], true)
             var color = '#' + (0x111 + Math.floor(Math.random() * 0xEEE)).toString(16)
-            hole.style.left = holes[i][0] + 'px'
-            hole.style.top = holes[i][1] + 'px'
+            hole.style.left = m.free[i][0] + 'px'
+            hole.style.top = m.free[i][1] + 'px'
             hole.style.borderColor = color
             hole.style.color = color
             dom.bin.appendChild(hole)
